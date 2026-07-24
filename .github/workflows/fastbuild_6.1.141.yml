@@ -512,6 +512,20 @@ jobs:
           cd kernel_workspace/common
           DEFCONFIG="./arch/arm64/configs/gki_defconfig"
 
+          echo "正在应用 Android/ColorOS 容器 KABI 兼容补丁..."
+          # 原生 Docker 也会开启 SYSVIPC/POSIX_MQUEUE/PID_NS；即使不启用
+          # Droidspaces，也必须保护 Android KABI 并规避 oplus_bsp_midas 崩溃。
+          wget -q https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_REF_NAME/droidspaces_patch/fix_sysvipc_kabi_6_7_8.patch -O /tmp/fix_sysvipc.patch
+          wget -q https://raw.githubusercontent.com/Goldzxcbug/Droidspaces_Kernel_patch/main/OKI/6.1/03.5.15%2B_use_android_abi_padding_for_posix_mqueue.patch -O /tmp/fix_posix_mqueue.patch
+          wget -q https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_REF_NAME/droidspaces_patch/fix_oplus_bsp_midas.patch -O /tmp/fix_oplus_bsp_midas.patch
+          wget -q https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_REF_NAME/droidspaces_patch/fix_cgroup.patch -O /tmp/fix_cgroup.patch
+
+          for p in /tmp/fix_sysvipc.patch /tmp/fix_posix_mqueue.patch /tmp/fix_oplus_bsp_midas.patch /tmp/fix_cgroup.patch; do
+            echo "严格应用补丁：$p"
+            patch -p1 --dry-run < "$p"
+            patch -p1 < "$p"
+          done
+
           echo "正在启用原生 Docker/LXC 所需的 cgroup、namespace、网络及常用 Linux ABI..."
 
           # 清理可能存在的旧值，确保最后写入的配置唯一且可审计。
@@ -776,7 +790,7 @@ jobs:
             wget https://github.com/cctv18/KPatch-Next/releases/latest/download/kpn.zip
           fi
           if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
-            AK3_NAME=AnyKernel3_${KSU_TYPENAME}_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_${{ github.event.inputs.kernel_suffix }}.zip
+            AK3_NAME=AnyKernel3_${KSU_TYPENAME}_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }}_${{ github.event.inputs.kernel_suffix }}.zip
           else
             AK3_NAME=AnyKernel3_${KSU_TYPENAME}_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_${{ env.KERNEL_NAME }}.zip
           fi

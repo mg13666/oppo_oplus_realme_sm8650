@@ -90,6 +90,19 @@ on:
         required: true
         type: boolean
         default: 'false'
+      docker_diag_mode:
+        description: 'Docker配置诊断组（用于Ace 5二分定位启动循环）'
+        required: true
+        type: choice
+        default: 'cgroup_pair'
+        options:
+          - 'cgroup_pair'
+          - 'sched_net_pair'
+          - 'cgroup_pids'
+          - 'cgroup_device'
+          - 'cfs_bandwidth'
+          - 'bridge_netfilter'
+          - 'none'
       kernel_suffix:
         description: '内核后缀(留空默认,开头别加连字符,勿加空格等影响指令运行的保留字符)'
         required: false
@@ -507,21 +520,32 @@ jobs:
             fi
           fi
 
-      - name: 启用 Docker 核心兼容性诊断配置（阶段 B）
+      - name: 启用 Docker 核心二分诊断配置（阶段 C）
         run: |
           cd kernel_workspace/common
           DEFCONFIG="./arch/arm64/configs/gki_defconfig"
+          MODE="${{ inputs.docker_diag_mode }}"
 
-          echo "阶段 B：仅启用四项 Docker 核心配置，不修改 namespace、SYSVIPC 或其他 Linux ABI。"
-          for symbol in CGROUP_PIDS CGROUP_DEVICE CFS_BANDWIDTH BRIDGE_NETFILTER; do
+          case "$MODE" in
+            cgroup_pair)      SYMBOLS="CGROUP_PIDS CGROUP_DEVICE" ;;
+            sched_net_pair)   SYMBOLS="CFS_BANDWIDTH BRIDGE_NETFILTER" ;;
+            cgroup_pids)      SYMBOLS="CGROUP_PIDS" ;;
+            cgroup_device)    SYMBOLS="CGROUP_DEVICE" ;;
+            cfs_bandwidth)    SYMBOLS="CFS_BANDWIDTH" ;;
+            bridge_netfilter) SYMBOLS="BRIDGE_NETFILTER" ;;
+            none)             SYMBOLS="" ;;
+            *) echo "未知 docker_diag_mode: $MODE"; exit 1 ;;
+          esac
+
+          echo "阶段 C 诊断模式：$MODE；仅新增：${SYMBOLS:-无}"
+          for symbol in $SYMBOLS; do
             sed -i -e "/^CONFIG_${symbol}=/d" \
                    -e "/^# CONFIG_${symbol} is not set/d" "$DEFCONFIG"
             echo "CONFIG_${symbol}=y" >> "$DEFCONFIG"
           done
 
-          # 此阶段故意不应用 SYSVIPC/POSIX_MQUEUE/Midas/cgroup-prefix 补丁，
-          # 用于隔离判断四项 Docker 核心配置是否能够在 Ace 5 上正常启动。
-          echo "阶段 B 配置已写入 gki_defconfig。"
+          # 不应用 namespace、SYSVIPC、POSIX_MQUEUE、Midas 或 cgroup-prefix 补丁。
+          echo "阶段 C 配置已写入 gki_defconfig。"
 
 
       - name: 启用三星SSG IO调度器

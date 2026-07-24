@@ -507,102 +507,21 @@ jobs:
             fi
           fi
 
-      - name: 启用原生 Docker LXC 及完整 Linux 容器支持
+      - name: 启用 Docker 核心兼容性诊断配置（阶段 B）
         run: |
           cd kernel_workspace/common
           DEFCONFIG="./arch/arm64/configs/gki_defconfig"
 
-          echo "正在应用 Android/ColorOS 容器 KABI 兼容补丁..."
-          # 原生 Docker 也会开启 SYSVIPC/POSIX_MQUEUE/PID_NS；即使不启用
-          # Droidspaces，也必须保护 Android KABI 并规避 oplus_bsp_midas 崩溃。
-          wget -q https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_REF_NAME/droidspaces_patch/fix_sysvipc_kabi_6_7_8.patch -O /tmp/fix_sysvipc.patch
-          wget -q https://raw.githubusercontent.com/Goldzxcbug/Droidspaces_Kernel_patch/main/OKI/6.1/03.5.15%2B_use_android_abi_padding_for_posix_mqueue.patch -O /tmp/fix_posix_mqueue.patch
-          wget -q https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_REF_NAME/droidspaces_patch/fix_oplus_bsp_midas.patch -O /tmp/fix_oplus_bsp_midas.patch
-          wget -q https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_REF_NAME/droidspaces_patch/fix_cgroup.patch -O /tmp/fix_cgroup.patch
-
-          for p in /tmp/fix_sysvipc.patch /tmp/fix_posix_mqueue.patch /tmp/fix_oplus_bsp_midas.patch /tmp/fix_cgroup.patch; do
-            echo "严格应用补丁：$p"
-            patch -p1 --dry-run < "$p"
-            patch -p1 < "$p"
-          done
-
-          echo "正在启用原生 Docker/LXC 所需的 cgroup、namespace、网络及常用 Linux ABI..."
-
-          # 清理可能存在的旧值，确保最后写入的配置唯一且可审计。
-          for symbol in \
-            CGROUP_PIDS CGROUP_DEVICE CFS_BANDWIDTH CGROUP_PERF CGROUP_HUGETLB \
-            BRIDGE_NETFILTER MACVLAN IPVLAN VXLAN BRIDGE_VLAN_FILTERING DUMMY \
-            NETFILTER_XT_MATCH_PHYSDEV NETFILTER_XT_MATCH_CGROUP \
-            NETFILTER_XT_TARGET_REDIRECT IP_NF_TARGET_REDIRECT \
-            IP_VS IP_VS_NFCT IP_VS_PROTO_TCP IP_VS_PROTO_UDP IP_VS_RR \
-            IPC_NS UTS_NS PID_NS NET_NS USER_NS SYSVIPC POSIX_MQUEUE \
-            FHANDLE INOTIFY_USER AUTOFS_FS FUSE_FS CUSE BINFMT_MISC \
-            TUN TAP UNIX_DIAG PACKET_DIAG SECCOMP SECCOMP_FILTER KEYS \
-            DEVPTS_MULTIPLE_INSTANCES TMPFS_XATTR TMPFS_POSIX_ACL; do
+          echo "阶段 B：仅启用四项 Docker 核心配置，不修改 namespace、SYSVIPC 或其他 Linux ABI。"
+          for symbol in CGROUP_PIDS CGROUP_DEVICE CFS_BANDWIDTH BRIDGE_NETFILTER; do
             sed -i -e "/^CONFIG_${symbol}=/d" \
                    -e "/^# CONFIG_${symbol} is not set/d" "$DEFCONFIG"
+            echo "CONFIG_${symbol}=y" >> "$DEFCONFIG"
           done
 
-          cat >> "$DEFCONFIG" <<'EOF'
-          # Native Docker/LXC: cgroup v1 controllers used by Android hybrid hierarchy
-          CONFIG_CGROUP_PIDS=y
-          CONFIG_CGROUP_DEVICE=y
-          CONFIG_CFS_BANDWIDTH=y
-          CONFIG_CGROUP_PERF=y
-          CONFIG_CGROUP_HUGETLB=y
-
-          # Linux namespaces, IPC and OCI runtime ABI
-          CONFIG_NAMESPACES=y
-          CONFIG_UTS_NS=y
-          CONFIG_IPC_NS=y
-          CONFIG_PID_NS=y
-          CONFIG_NET_NS=y
-          CONFIG_USER_NS=y
-          CONFIG_SYSVIPC=y
-          CONFIG_POSIX_MQUEUE=y
-          CONFIG_FHANDLE=y
-          CONFIG_KEYS=y
-          CONFIG_SECCOMP=y
-          CONFIG_SECCOMP_FILTER=y
-
-          # Docker bridge/overlay and optional container network drivers
-          CONFIG_BRIDGE_NETFILTER=y
-          CONFIG_MACVLAN=y
-          CONFIG_IPVLAN=y
-          CONFIG_VXLAN=y
-          CONFIG_BRIDGE_VLAN_FILTERING=y
-          CONFIG_DUMMY=y
-          CONFIG_NETFILTER_XT_MATCH_PHYSDEV=y
-          CONFIG_NETFILTER_XT_MATCH_CGROUP=y
-          CONFIG_NETFILTER_XT_TARGET_REDIRECT=y
-          CONFIG_IP_NF_TARGET_REDIRECT=y
-
-          # Docker Swarm / Kubernetes service networking
-          CONFIG_IP_VS=y
-          CONFIG_IP_VS_NFCT=y
-          CONFIG_IP_VS_PROTO_TCP=y
-          CONFIG_IP_VS_PROTO_UDP=y
-          CONFIG_IP_VS_RR=y
-
-          # Common full Linux userspace/container facilities
-          # FANOTIFY is intentionally left at the vendor default. Enabling it on
-          # this 6.1.141 vendor tree exposes an incompatible fdinfo callback ABI.
-          # Docker itself does not require fanotify.
-          CONFIG_INOTIFY_USER=y
-          CONFIG_AUTOFS_FS=y
-          CONFIG_FUSE_FS=y
-          CONFIG_CUSE=y
-          CONFIG_BINFMT_MISC=y
-          CONFIG_TUN=y
-          CONFIG_TAP=y
-          CONFIG_UNIX_DIAG=y
-          CONFIG_PACKET_DIAG=y
-          CONFIG_DEVPTS_MULTIPLE_INSTANCES=y
-          CONFIG_TMPFS_XATTR=y
-          CONFIG_TMPFS_POSIX_ACL=y
-          EOF
-          # 最终配置将在正式 gki_defconfig 生成后从 out/.config 硬性验证。
-          echo "原生 Docker/Linux 配置已写入 gki_defconfig。"
+          # 此阶段故意不应用 SYSVIPC/POSIX_MQUEUE/Midas/cgroup-prefix 补丁，
+          # 用于隔离判断四项 Docker 核心配置是否能够在 Ace 5 上正常启动。
+          echo "阶段 B 配置已写入 gki_defconfig。"
 
 
       - name: 启用三星SSG IO调度器
